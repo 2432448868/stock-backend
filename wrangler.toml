@@ -1,6 +1,12 @@
 name = "stock-backend"
 main = "src/index.ts"
-compatibility_date = "2026-07-20"
+compatibility_date = "2024-01-01"
 
 [vars]
 ENVIRONMENT = "production"
+
+# KV 缓存绑定（先执行: npx wrangler kv:namespace create "STOCK_CACHE"
+# 然后把返回的 id 填到下面）
+[[kv_namespaces]]
+binding = "STOCK_CACHE"
+id = "e87471b1ecc2483ca444d25d11f6aaa5"
