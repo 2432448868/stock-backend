@@ -1,15 +1,4 @@
-export default async function handler(request: Request): Promise<Response> {
-  // CORS
-  if (request.method === 'OPTIONS') {
-    return new Response(null, {
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type',
-      },
-    });
-  }
-
+export async function GET(request: Request): Promise<Response> {
   try {
     const url = new URL(request.url);
     const type = url.searchParams.get('type') || 'industry';
