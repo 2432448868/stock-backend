@@ -27,8 +27,14 @@ export default {
       return new Response(null, { headers: CORS_HEADERS });
     }
 
+    const url = new URL(request.url);
+
+    // 诊断接口：排查连通性
+    if (url.pathname === '/health') {
+      return handleHealthCheck(env);
+    }
+
     try {
-      const url = new URL(request.url);
       const type = url.searchParams.get('type') as keyof typeof SECTOR_TYPES | null;
       const sort = url.searchParams.get('sort') || 'f3';
       const order = (url.searchParams.get('order') as 'asc' | 'desc') || 'desc';
@@ -40,13 +46,56 @@ export default {
       const data = await getCachedSectorData(env, type, sort, order);
       return json({ success: true, data });
     } catch (error) {
-      return json({
-        success: false,
-        error: error instanceof Error ? error.message : '未知错误',
-      }, 500);
+      const errMsg = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+      return json({ success: false, error: errMsg }, 500);
     }
   },
 };
+
+/** 诊断接口：检查 KV 连通性 + 东方财富 API 连通性 */
+async function handleHealthCheck(env: Env): Promise<Response> {
+  const checks: Record<string, any> = {};
+
+  // 检查 KV 绑定
+  checks.kv_bound = !!env.STOCK_CACHE;
+  if (env.STOCK_CACHE) {
+    try {
+      await env.STOCK_CACHE.get('__health_check__');
+      checks.kv_accessible = true;
+    } catch (e: any) {
+      checks.kv_accessible = false;
+      checks.kv_error = e.message;
+    }
+  }
+
+  // 检查东方财富 API 连通性
+  try {
+    const testUrl = `${EASTMONEY_API}?${new URLSearchParams({
+      fs: SECTOR_TYPES.industry,
+      fid: 'f3', po: '1', pz: '1', pn: '1', np: '1', fltt: '2', invt: '2',
+      fields: 'f12,f14',
+    })}`;
+    const res = await fetch(testUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Referer': 'https://quote.eastmoney.com/',
+      },
+    });
+    checks.eastmoney_status = res.status;
+    checks.eastmoney_ok = res.ok;
+    if (res.ok) {
+      const data: any = await res.json();
+      checks.eastmoney_has_data = !!(data?.data?.diff);
+    } else {
+      checks.eastmoney_body = await res.text();
+    }
+  } catch (e: any) {
+    checks.eastmoney_ok = false;
+    checks.eastmoney_error = `${e.name}: ${e.message}`;
+  }
+
+  return json({ success: true, checks });
+}
 
 /** 带 KV 缓存的板块数据获取 */
 async function getCachedSectorData(
