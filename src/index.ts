@@ -14,6 +14,9 @@ const SECTOR_TYPES = {
 /** 缓存 TTL：10 秒，保证近实时 */
 const CACHE_TTL = 10;
 
+/** 请求超时：5 秒，防止东方财富卡死拖垮 Worker */
+const FETCH_TIMEOUT = 5000;
+
 const CORS_HEADERS: Record<string, string> = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, OPTIONS',
@@ -75,7 +78,7 @@ async function handleHealthCheck(env: Env): Promise<Response> {
       fid: 'f3', po: '1', pz: '1', pn: '1', np: '1', fltt: '2', invt: '2',
       fields: 'f12,f14',
     })}`;
-    const res = await fetch(testUrl, {
+    const res = await fetchWithTimeout(testUrl, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
         'Referer': 'https://quote.eastmoney.com/',
@@ -141,7 +144,7 @@ async function fetchSectorData(
     fields: 'f1,f2,f3,f4,f5,f6,f8,f12,f14,f15,f16,f17,f18,f20,f21,f104,f105,f106,f107,f128,f136,f140,f141',
   });
 
-  const response = await fetch(`${EASTMONEY_API}?${params}`, {
+  const response = await fetchWithTimeout(`${EASTMONEY_API}?${params}`, {
     headers: {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
       'Referer': 'https://quote.eastmoney.com/',
@@ -195,4 +198,25 @@ function json(data: any, status = 200): Response {
       ...CORS_HEADERS,
     },
   });
+}
+
+/** 带超时的 fetch，防止外部 API 卡死 */
+async function fetchWithTimeout(url: string, init?: RequestInit): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
+
+  try {
+    const response = await fetch(url, {
+      ...init,
+      signal: controller.signal,
+    });
+    return response;
+  } catch (error: any) {
+    if (error.name === 'AbortError') {
+      throw new Error(`请求超时（${FETCH_TIMEOUT}ms）：${url}`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
