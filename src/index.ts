@@ -32,6 +32,11 @@ export default {
 
     const url = new URL(request.url);
 
+    // 最简诊断：不发任何请求，只证明 Worker 在跑
+    if (url.pathname === '/ping') {
+      return json({ alive: true, time: new Date().toISOString() });
+    }
+
     // 诊断接口：排查连通性
     if (url.pathname === '/health') {
       return handleHealthCheck(env);
@@ -202,21 +207,13 @@ function json(data: any, status = 200): Response {
 
 /** 带超时的 fetch，防止外部 API 卡死 */
 async function fetchWithTimeout(url: string, init?: RequestInit): Promise<Response> {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    setTimeout(() => reject(new Error(`请求超时（${FETCH_TIMEOUT}ms）：${url}`)), FETCH_TIMEOUT);
+  });
 
-  try {
-    const response = await fetch(url, {
-      ...init,
-      signal: controller.signal,
-    });
-    return response;
-  } catch (error: any) {
-    if (error.name === 'AbortError') {
-      throw new Error(`请求超时（${FETCH_TIMEOUT}ms）：${url}`);
-    }
-    throw error;
-  } finally {
-    clearTimeout(timeoutId);
-  }
+  const response = await Promise.race([
+    fetch(url, init),
+    timeoutPromise,
+  ]);
+  return response;
 }
